@@ -100,6 +100,7 @@ func (s *server) Generate() http.HandlerFunc {
 				if err != nil {
 					return err
 				}
+				defer file.Close()
 			}
 			return nil
 		})
@@ -108,7 +109,11 @@ func (s *server) Generate() http.HandlerFunc {
 			return
 		}
 
-		imagegen.Create(file, image.Title, image.TitleColor, image.Fonts)
+		err = imagegen.Create(file, image.Title, image.TitleColor, image.Fonts)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
 		fileName := strings.TrimSuffix(filepath.Base(file.Name()), filepath.Ext(file.Name()))
 		err = compress.ZipFiles("output/"+fileName+".zip", "output/"+fileName)
@@ -119,31 +124,22 @@ func (s *server) Generate() http.HandlerFunc {
 
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Disposition", "attachment; filename="+fileName+".zip")
+		w.Header().Set("Content-Type", "application/zip")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"message": "hello world"}`))
+		compressedFile, err := os.Open("output/" + fileName + ".zip")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		defer compressedFile.Close()
+		io.Copy(w, compressedFile)
 	}
 }
 
 func isFileMatching(fileName string, fileId string) bool {
 	return fileName == fileId+".jpg" || fileName == fileId+".jpeg" || fileName == fileId+".png"
 }
-
-// func findImage(fileId string, file *os.File) func(path string, info os.FileInfo, err error) error {
-// 	return func(path string, info os.FileInfo, err error) error {
-// 		if err != nil {
-// 			return err
-// 		}
-//
-// 		if !info.IsDir() && isFileMatching(info.Name(), fileId) {
-// 			file, err = os.Open(path)
-// 			if err != nil {
-// 				return err
-// 			}
-// 		}
-// 		return nil
-// 	}
-// }
 
 func main() {
 	s := &server{}
