@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/drsherlock/image-generator-api/compress"
 	// "errors"
 	"fmt"
 	"github.com/drsherlock/imagegen"
@@ -12,8 +13,8 @@ import (
 	"log"
 	"net/http"
 	"os"
-	// "bytes"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -94,7 +95,7 @@ func (s *server) Generate() http.HandlerFunc {
 				return err
 			}
 
-			if !info.IsDir() && (info.Name() == image.FileId+".jpg" || info.Name() == image.FileId+".png") {
+			if !info.IsDir() && isFileMatching(info.Name(), image.FileId) {
 				file, err = os.Open(path)
 				if err != nil {
 					return err
@@ -109,6 +110,13 @@ func (s *server) Generate() http.HandlerFunc {
 
 		imagegen.Create(file, image.Title, image.TitleColor, image.Fonts)
 
+		fileName := strings.TrimSuffix(filepath.Base(file.Name()), filepath.Ext(file.Name()))
+		err = compress.ZipFiles("output/"+fileName+".zip", "output/"+fileName)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		w.Header().Set("Content-Type", "application/json")
@@ -116,6 +124,26 @@ func (s *server) Generate() http.HandlerFunc {
 		w.Write([]byte(`{"message": "hello world"}`))
 	}
 }
+
+func isFileMatching(fileName string, fileId string) bool {
+	return fileName == fileId+".jpg" || fileName == fileId+".jpeg" || fileName == fileId+".png"
+}
+
+// func findImage(fileId string, file *os.File) func(path string, info os.FileInfo, err error) error {
+// 	return func(path string, info os.FileInfo, err error) error {
+// 		if err != nil {
+// 			return err
+// 		}
+//
+// 		if !info.IsDir() && isFileMatching(info.Name(), fileId) {
+// 			file, err = os.Open(path)
+// 			if err != nil {
+// 				return err
+// 			}
+// 		}
+// 		return nil
+// 	}
+// }
 
 func main() {
 	s := &server{}
