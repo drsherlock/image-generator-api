@@ -48,8 +48,7 @@ func AddFileToZip(fileName string, zipw *zip.Writer) error {
 
 	wr, err := zipw.Create(filepath.Base(fileName))
 	if err != nil {
-		msg := "Failed to create entry for %s in zip file: %s"
-		return fmt.Errorf(msg, fileName, err)
+		return fmt.Errorf("Failed to create entry for %s in zip file: %s", fileName, err)
 	}
 
 	if _, err := io.Copy(wr, file); err != nil {
