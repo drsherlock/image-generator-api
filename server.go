@@ -19,10 +19,18 @@ const (
 )
 const MAX_UPLOAD_SIZE = 1024 * 1024 * 5 // 5 MB
 
-type server struct{}
+type server struct{ queue *queue }
 
-func NewServer() *server {
-	return &server{}
+func NewServer(queue *queue) *server {
+	return &server{queue: queue}
+}
+
+type ImageId struct {
+	Id string `json:"id"`
+}
+
+type ImageName struct {
+	Name string
 }
 
 func (s *server) Upload() http.HandlerFunc {
@@ -46,8 +54,8 @@ func (s *server) Upload() http.HandlerFunc {
 			return
 		}
 
-		filetype := http.DetectContentType(buff)
-		if filetype != "image/jpeg" && filetype != "image/png" {
+		fileType := http.DetectContentType(buff)
+		if !isValidFileExt(filepath.Ext(fileHeader.Filename)) || !isValidFileType(fileType) {
 			http.Error(w, FileFormatErr, http.StatusBadRequest)
 			return
 		}
@@ -62,8 +70,8 @@ func (s *server) Upload() http.HandlerFunc {
 			return
 		}
 
-		imageId := time.Now().UnixNano()
-		dst, err := os.Create(fmt.Sprintf("./uploads/%d%s", imageId, filepath.Ext(fileHeader.Filename)))
+		id := fmt.Sprint(time.Now().UnixNano())
+		dst, err := os.Create(fmt.Sprintf("./uploads/%s%s", id, filepath.Ext(fileHeader.Filename)))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -75,16 +83,24 @@ func (s *server) Upload() http.HandlerFunc {
 			return
 		}
 
-		image := struct {
-			ImageId int64 `json:"imageId"`
-		}{
-			ImageId: imageId,
+		imageId := ImageId{
+			Id: id,
 		}
+
+		imageName := ImageName{
+			Name: id + filepath.Ext(fileHeader.Filename),
+		}
+
+		if err := s.queue.Publish(imageName); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		if err := json.NewEncoder(w).Encode(image); err != nil {
+		if err := json.NewEncoder(w).Encode(imageId); err != nil {
 			panic(err)
 		}
 	}
@@ -127,7 +143,7 @@ func (s *server) Generate() http.HandlerFunc {
 		// 	return
 		// }
 
-		imagesPath := struct {
+		imPath := struct {
 			Images []string `json:"images"`
 		}{
 			Images: images,
@@ -139,7 +155,7 @@ func (s *server) Generate() http.HandlerFunc {
 		// w.Header().Set("Content-Disposition", "attachment; filename="+fileName+".zip")
 		// w.Header().Set("Content-Type", "application/zip")
 		w.WriteHeader(http.StatusOK)
-		if err := json.NewEncoder(w).Encode(imagesPath); err != nil {
+		if err := json.NewEncoder(w).Encode(imPath); err != nil {
 			panic(err)
 		}
 		// compressedFile, err := os.Open("output/" + fileName + ".zip")
@@ -152,13 +168,28 @@ func (s *server) Generate() http.HandlerFunc {
 	}
 }
 
+func (s *server) Remove() func(imageName *ImageName) error {
+	return func(imageName *ImageName) error {
+		if err := os.RemoveAll("./output/" + strings.TrimSuffix(imageName.Name, filepath.Ext(imageName.Name))); err != nil {
+			return err
+		}
+
+		if err := os.Remove("./uploads/" + imageName.Name); err != nil {
+			return err
+		}
+
+		return nil
+	}
+}
+
 func findFile(fileId string, file *os.File) filepath.WalkFunc {
 	return func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
-		if !info.IsDir() && isFileMatching(info.Name(), fileId) {
+		fileName := strings.TrimSuffix(info.Name(), filepath.Ext(info.Name()))
+		if !info.IsDir() && isFileMatching(fileName, fileId) {
 			f, err := os.Open(path)
 			if err != nil {
 				return err
@@ -182,6 +213,22 @@ func visitDir(files *[]string) filepath.WalkFunc {
 	}
 }
 
+func isValidFileType(fileType string) bool {
+	if fileType != "image/jpeg" && fileType != "image/jpg" && fileType != "image/png" {
+		return false
+	}
+
+	return true
+}
+
+func isValidFileExt(fileExt string) bool {
+	if fileExt != ".jpeg" && fileExt != ".jpg" && fileExt != ".png" {
+		return false
+	}
+
+	return true
+}
+
 func isFileMatching(fileName string, fileId string) bool {
-	return fileName == fileId+".jpg" || fileName == fileId+".jpeg" || fileName == fileId+".png"
+	return fileName == fileId
 }
