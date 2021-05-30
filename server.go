@@ -3,21 +3,14 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/drsherlock/image-generator-api/compress"
+	// "github.com/drsherlock/image-generator-api/compress"
 	"github.com/drsherlock/imagegen"
-	"github.com/gorilla/mux"
-	"github.com/rs/cors"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
-)
-
-const (
-	ListenAddr = "localhost:8080"
 )
 
 const (
@@ -27,6 +20,10 @@ const (
 const MAX_UPLOAD_SIZE = 1024 * 1024 * 5 // 5 MB
 
 type server struct{}
+
+func NewServer() *server {
+	return &server{}
+}
 
 func (s *server) Upload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +41,7 @@ func (s *server) Upload() http.HandlerFunc {
 		defer file.Close()
 
 		buff := make([]byte, 512)
-		if _, err = file.Read(buff); err != nil {
+		if _, err := file.Read(buff); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -55,33 +52,33 @@ func (s *server) Upload() http.HandlerFunc {
 			return
 		}
 
-		if _, err = file.Seek(0, io.SeekStart); err != nil {
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		if err = os.MkdirAll("./uploads", os.ModePerm); err != nil {
+		if err := os.MkdirAll("./uploads", os.ModePerm); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		fileId := time.Now().UnixNano()
-		dst, err := os.Create(fmt.Sprintf("./uploads/%d%s", fileId, filepath.Ext(fileHeader.Filename)))
+		imageId := time.Now().UnixNano()
+		dst, err := os.Create(fmt.Sprintf("./uploads/%d%s", imageId, filepath.Ext(fileHeader.Filename)))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		defer dst.Close()
 
-		if _, err = io.Copy(dst, file); err != nil {
+		if _, err := io.Copy(dst, file); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
 		image := struct {
-			FileId int64 `json:"fileId"`
+			ImageId int64 `json:"imageId"`
 		}{
-			FileId: fileId,
+			ImageId: imageId,
 		}
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
@@ -107,39 +104,55 @@ func (s *server) Generate() http.HandlerFunc {
 		}
 
 		file := new(os.File)
-		err := filepath.Walk("uploads", findFile(image.FileId, file))
-		if err != nil {
+		if err := filepath.Walk("uploads", findFile(image.FileId, file)); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		if err = imagegen.Create(file, image.Title, image.TitleColor, image.Fonts); err != nil {
+		if err := imagegen.Create(file, image.Title, image.TitleColor, image.Fonts); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
+		var images []string
 		fileName := strings.TrimSuffix(filepath.Base(file.Name()), filepath.Ext(file.Name()))
-		if err = compress.ZipFiles("output/"+fileName+".zip", "output/"+fileName); err != nil {
+		if err := filepath.Walk("output/"+fileName, visitDir(&images)); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+
+		// fileName := strings.TrimSuffix(filepath.Base(file.Name()), filepath.Ext(file.Name()))
+		// if err = compress.ZipFiles("output/"+fileName+".zip", "output/"+fileName); err != nil {
+		// 	http.Error(w, err.Error(), http.StatusInternalServerError)
+		// 	return
+		// }
+
+		imagesPath := struct {
+			Images []string `json:"images"`
+		}{
+			Images: images,
 		}
 
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		w.Header().Set("Content-Disposition", "attachment; filename="+fileName+".zip")
-		w.Header().Set("Content-Type", "application/zip")
+		w.Header().Set("Content-Type", "application/json")
+		// w.Header().Set("Content-Disposition", "attachment; filename="+fileName+".zip")
+		// w.Header().Set("Content-Type", "application/zip")
 		w.WriteHeader(http.StatusOK)
-		compressedFile, err := os.Open("output/" + fileName + ".zip")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
+		if err := json.NewEncoder(w).Encode(imagesPath); err != nil {
+			panic(err)
 		}
-		defer compressedFile.Close()
-		io.Copy(w, compressedFile)
+		// compressedFile, err := os.Open("output/" + fileName + ".zip")
+		// if err != nil {
+		// 	http.Error(w, err.Error(), http.StatusBadRequest)
+		// 	return
+		// }
+		// defer compressedFile.Close()
+		// io.Copy(w, compressedFile)
 	}
 }
 
-func findFile(fileId string, file *os.File) func(path string, info os.FileInfo, err error) error {
+func findFile(fileId string, file *os.File) filepath.WalkFunc {
 	return func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -156,15 +169,19 @@ func findFile(fileId string, file *os.File) func(path string, info os.FileInfo, 
 	}
 }
 
-func isFileMatching(fileName string, fileId string) bool {
-	return fileName == fileId+".jpg" || fileName == fileId+".jpeg" || fileName == fileId+".png"
+func visitDir(files *[]string) filepath.WalkFunc {
+	return func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if !info.IsDir() {
+			*files = append(*files, path)
+		}
+		return nil
+	}
 }
 
-func main() {
-	s := &server{}
-	r := mux.NewRouter()
-	r.HandleFunc("/upload", s.Upload()).Methods("POST")
-	r.HandleFunc("/generate", s.Generate()).Methods("POST")
-	handler := cors.Default().Handler(r)
-	log.Fatal(http.ListenAndServe(ListenAddr, handler))
+func isFileMatching(fileName string, fileId string) bool {
+	return fileName == fileId+".jpg" || fileName == fileId+".jpeg" || fileName == fileId+".png"
 }
