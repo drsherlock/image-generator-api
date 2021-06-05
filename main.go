@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	ListenAddr = "localhost:8080"
-	QueueAddr  = "amqp://guest:guest@localhost:5672/"
+	ListenAddr = "api:8080"
+	QueueAddr  = "amqp://guest:guest@rmq/"
 )
 
 func FileServer(w http.ResponseWriter, r *http.Request) {

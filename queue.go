@@ -54,7 +54,7 @@ func (queue *queue) Publish(imageName ImageName) error {
 	}
 
 	headers := make(amqp.Table)
-	headers["x-delay"] = 20000
+	headers["x-delay"] = 50000
 	err = queue.ch.Publish(queue.ex, "delete.files", false, false, amqp.Publishing{
 		DeliveryMode: amqp.Persistent,
 		ContentType:  "application/json",
