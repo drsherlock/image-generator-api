@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	ListenAddr = "api:8080"
+	ListenAddr = ":80"
 	QueueAddr  = "amqp://guest:guest@rmq/"
 )
 
@@ -30,6 +30,7 @@ func main() {
 	s := NewServer(q)
 	go q.Consume(s.Remove())
 	r := mux.NewRouter()
+	r.HandleFunc("/", s.Check()).Methods("GET")
 	r.HandleFunc("/upload", s.Upload()).Methods("POST")
 	r.HandleFunc("/generate", s.Generate()).Methods("POST")
 	r.HandleFunc("/output/{id}/{imageName}", FileServer)

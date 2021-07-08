@@ -6,6 +6,7 @@ services:
     container_name: rmq
     hostname: rmq
     build: ./docker/rmq
+    image: drsherlock.azurecr.io/image-generator-rmq
     environment:
       - RABBITMQ_DEFAULT_USER=guest
       - RABBITMQ_DEFAULT_PASS=guest
@@ -17,10 +18,11 @@ services:
     build:
       context: .
       dockerfile: ./docker/api/Dockerfile
+    image: drsherlock.azurecr.io/image-generator-api
     command: go run .
     links:
       - rmq
     depends_on:
       - rmq
     ports:
-      - "8080:8080"
+      - "80:80"

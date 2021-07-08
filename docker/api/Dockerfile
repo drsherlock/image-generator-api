@@ -10,8 +10,8 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build
+RUN go build -o ./out/image-generaor-api .
 
-EXPOSE 8080
+EXPOSE 80
 
-CMD ["/app/main"]
+CMD ["./out/image-generaor-api"]
